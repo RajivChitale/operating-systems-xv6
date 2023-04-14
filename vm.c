@@ -392,3 +392,44 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
 //PAGEBREAK!
 // Blank page.
 
+
+// prints page table structure
+int
+sys_pgtPrint(void)
+{
+  int tablewise = 0;   //set to 1 to group entries by their table
+  pde_t *pgdir = myproc()->pgdir; //ptr to base of page directory
+  pde_t *pde;                     //ptr to entry in page directory
+  pte_t *pgtab;                   //ptr to base of page table
+  pte_t *pte;                     //ptr to entry in page table
+  uint pagecount = 0;
+  
+  // loop over entries in page directory
+  for(uint outer = 0; outer < NPDENTRIES; outer++)
+  {
+    pde = &pgdir[outer]; // pointer to entry in directory (with flags)
+    if( !(*pde & PTE_P && *pde & PTE_U) ){ continue;}
+    pgtab = (pte_t*)P2V(PTE_ADDR(*pde)); // converts to virtual address accessible by OS
+    int entry_exists = 0;  // bool to denote if table is empty or not
+
+    //loop over entries in page table
+    for(uint inner = 0; inner<NPTENTRIES; inner++)
+    {
+      pte = &pgtab[inner];  // pointer to entry in page table
+      if( !(*pte & PTE_P && *pte & PTE_U) ){ continue;} // not present or not userspace
+
+      if(tablewise==1 && entry_exists==0) // found first entry. Print table name if printing tablewise
+      {
+        entry_exists=1;
+        cprintf("\nReading Table %d at Virtual address: 0x%x, Physical address: 0x%x\n\n", outer, pgtab, PTE_ADDR(*pde));
+      }
+      
+      int virtual = (outer << PDXSHIFT) + (inner << PTXSHIFT); //convert physical to virtual address for process
+      cprintf("Entry number: %d, Virtual address: 0x%x, Physical address: 0x%x\n", pagecount, virtual, PTE_ADDR(*pte));
+      pagecount++;
+    }
+
+  }
+  return 0;
+}
+

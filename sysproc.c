@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "mmu.h"
 #include "proc.h"
+//#include "lapic.c"
 
 int
 sys_fork(void)
@@ -89,3 +90,26 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+int
+sys_date(void)
+{
+  struct rtcdate* rptr;
+  if(argptr(0, (void*) &rptr, sizeof(rptr)) < 0)
+    return -1;
+  cmostime(rptr);
+  return 0;
+}
+
+int
+sys_trail(void)
+{
+  int mode;
+  if(argint(0, &mode) < 0)
+    return -1;
+  if(mode == 0) cprintf("No system calls logged\n");
+  else if(mode== 1) cprintf("System calls logged, ignoring write\n");
+  else if(mode== 2) cprintf("All system calls logged\n");
+  return mode;
+}
+
