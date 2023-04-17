@@ -10,6 +10,9 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
+// pgflt_handler.c
+int             pgflt_handler(void);
+
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);

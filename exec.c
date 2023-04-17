@@ -38,23 +38,32 @@ exec(char *path, char **argv)
   if((pgdir = setupkvm()) == 0)
     goto bad;
 
+// read only code has: (ph.flags & ELF_PROG_FLAG_READ) && (ph.flags & ELF_PROG_FLAG_EXEC) && !(ph.flags & ELF_PROG_FLAG_WRITE)
+  
   // Load program into memory.
+  int demand_paging = 1;  // toggle: 1 with, 0 without demand paging
   sz = 0;
   for(i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){
+
     if(readi(ip, (char*)&ph, off, sizeof(ph)) != sizeof(ph))
       goto bad;
-    if(ph.type != ELF_PROG_LOAD)
+    if(ph.type != ELF_PROG_LOAD)  // skip if not loadable
       continue;
-    if(ph.memsz < ph.filesz)
+    if(ph.memsz < ph.filesz)      // valid memsize
       goto bad;
     if(ph.vaddr + ph.memsz < ph.vaddr)
       goto bad;
-    if((sz = allocuvm(pgdir, sz, ph.vaddr + ph.memsz)) == 0)
+
+    if((sz = allocuvm(pgdir, sz, ph.vaddr + ph.filesz)) == 0) // allocate memory for text
       goto bad;
     if(ph.vaddr % PGSIZE != 0)
       goto bad;
-    if(loaduvm(pgdir, (char*)ph.vaddr, ip, ph.off, ph.filesz) < 0)
+    if(loaduvm(pgdir, (char*)ph.vaddr, ip, ph.off, ph.filesz) < 0)  
       goto bad;
+
+    if(!demand_paging && (sz = allocuvm(pgdir, sz, ph.vaddr + ph.memsz)) == 0) // creates pages for data when not demand paging
+      goto bad;               
+    sz = ph.vaddr + ph.memsz; // skips pages for uninitialized segment in demand paging
   }
   iunlockput(ip);
   end_op();

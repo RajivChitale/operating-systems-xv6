@@ -184,6 +184,7 @@ UPROGS=\
 	_mydate\
 	_trail\
 	_mypgtPrint\
+	_mydemandPage\
 
 fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)

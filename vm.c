@@ -433,3 +433,31 @@ sys_pgtPrint(void)
   return 0;
 }
 
+int
+pgflt_handler(void)
+{
+    struct proc* currproc = myproc();
+    pde_t *pgdir = currproc->pgdir; //ptr to base of page directory
+    uint access_addr = rcr2();
+
+    if(access_addr >= KERNBASE){   //address restricted to userspace
+      cprintf("invalid virtual address\n"); 
+      return -1; 
+    } 
+
+    char *mem = kalloc();   // allocate physical memory to kernel
+    if(mem == 0){
+        cprintf("out of memory\n");
+        return -1;
+    }
+    memset(mem, 0, PGSIZE); //zero out page
+
+    if(mappages(pgdir, (void*)access_addr, PGSIZE, V2P(mem), PTE_W|PTE_U) < 0){
+        cprintf("out of memory (2)\n");
+        kfree(mem);
+        return -1;
+    }
+
+    cprintf("(Page demanded and satisfied)\n");
+    return 0;
+}

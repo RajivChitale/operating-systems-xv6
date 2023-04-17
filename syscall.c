@@ -168,7 +168,7 @@ syscall(void)
 {
   int num;
   struct proc *curproc = myproc();
-  static int trail_mode = 1;   // 2 for printing all syscalls, 1 to ignore write, 0 for not printing.
+  static int trail_mode = 0;   // 2 for printing all syscalls, 1 to ignore write, 0 for not printing.
   num = curproc->tf->eax;      // syscall number
 
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
