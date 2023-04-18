@@ -189,13 +189,16 @@ fork(void)
     return -1;
   }
 
-  // Copy process state from proc.
-  if((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0){
+  cprintf("(fork, new pid %d)\n", np->pid); //temp
+
+  // Copy process state from proc. Reuse pages
+  if((np->pgdir = copy_pages(curproc->pgdir, curproc->sz)) == 0){
     kfree(np->kstack);
     np->kstack = 0;
     np->state = UNUSED;
     return -1;
   }
+
   np->sz = curproc->sz;
   np->parent = curproc;
   *np->tf = *curproc->tf;
@@ -287,7 +290,7 @@ wait(void)
       if(p->state == ZOMBIE){
         // Found one.
         pid = p->pid;
-        kfree(p->kstack);
+        kfree(p->kstack); //review
         p->kstack = 0;
         freevm(p->pgdir);
         p->pid = 0;

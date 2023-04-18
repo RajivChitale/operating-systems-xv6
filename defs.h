@@ -10,9 +10,6 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
-// pgflt_handler.c
-int             pgflt_handler(void);
-
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
@@ -183,11 +180,15 @@ int             deallocuvm(pde_t*, uint, uint);
 void            freevm(pde_t*);
 void            inituvm(pde_t*, char*, uint);
 int             loaduvm(pde_t*, char*, struct inode*, uint, uint);
-pde_t*          copyuvm(pde_t*, uint);
 void            switchuvm(struct proc*);
 void            switchkvm(void);
 int             copyout(pde_t*, uint, void*, uint);
 void            clearpteu(pde_t *pgdir, char *uva);
+
+int             copy_frame(pde_t*, uint);
+pde_t*          copy_pages(pde_t*, uint);
+int             pgflt_handler(void);
+int             set_page_perms(uint flags, uint values);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

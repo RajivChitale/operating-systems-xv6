@@ -57,7 +57,8 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 // Create PTEs for virtual addresses starting at va that refer to
 // physical addresses starting at pa. va and size might not
 // be page-aligned.
-static int
+//static 
+int
 mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 {
   char *a, *last;
@@ -68,7 +69,7 @@ mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
   for(;;){
     if((pte = walkpgdir(pgdir, a, 1)) == 0)
       return -1;
-    if(*pte & PTE_P)
+    if(*pte & PTE_P && *pte & PTE_W ) // ok to change readable page to writable
       panic("remap");
     *pte = pa | perm | PTE_P;
     if(a == last)
@@ -266,7 +267,7 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
     pte = walkpgdir(pgdir, (char*)a, 0);
     if(!pte)
       a = PGADDR(PDX(a) + 1, 0, 0) - PGSIZE;
-    else if((*pte & PTE_P) != 0){
+    else if((*pte & PTE_P) != 0 && (*pte & PTE_W) ){    //not allowing clearing of read only frames
       pa = PTE_ADDR(*pte);
       if(pa == 0)
         panic("kfree");
@@ -289,7 +290,7 @@ freevm(pde_t *pgdir)
     panic("freevm: no pgdir");
   deallocuvm(pgdir, KERNBASE, 0);
   for(i = 0; i < NPDENTRIES; i++){
-    if(pgdir[i] & PTE_P){
+    if(pgdir[i] & PTE_P && pgdir[i] & PTE_W){   //not allowing clearing of read only frames
       char * v = P2V(PTE_ADDR(pgdir[i]));
       kfree(v);
     }
@@ -310,15 +311,45 @@ clearpteu(pde_t *pgdir, char *uva)
   *pte &= ~PTE_U;
 }
 
+// Create a copy of a frame and assign it to a writable page
+int
+copy_frame(pde_t *pgdir, uint addr)
+{
+  pte_t *pte;
+  uint pa, flags;
+  char *mem;
+  addr = PGROUNDDOWN(addr); 
+
+  if((pte = walkpgdir(pgdir, (void *) addr, 0)) == 0)
+    panic("copyuvm: pte should exist");
+  if(!(*pte & PTE_P))
+    panic("copyuvm: page not present");
+  pa = PTE_ADDR(*pte);
+  flags = PTE_FLAGS(*pte) | PTE_W; // copy made writable here
+
+  if((mem = kalloc()) == 0)
+    return -1;
+
+  memmove(mem, (char*)P2V(pa), PGSIZE);
+
+  if(mappages(pgdir, (void*)addr, PGSIZE, V2P(mem), flags) < 0) {
+    kfree(mem);
+    return -1;
+  }
+
+  lcr3(V2P(pgdir)); // refresh TLB
+  return 1;
+}
+
+
 // Given a parent process's page table, create a copy
-// of it for a child.
+// of it for a child. Mapping to same physical frames
 pde_t*
-copyuvm(pde_t *pgdir, uint sz)
+copy_pages(pde_t *pgdir, uint sz)
 {
   pde_t *d;
   pte_t *pte;
   uint pa, i, flags;
-  char *mem;
 
   if((d = setupkvm()) == 0)
     return 0;
@@ -327,13 +358,17 @@ copyuvm(pde_t *pgdir, uint sz)
       panic("copyuvm: pte should exist");
     if(!(*pte & PTE_P))
       panic("copyuvm: page not present");
+
+    *pte = *pte & ~PTE_W; // make page read only
     pa = PTE_ADDR(*pte);
     flags = PTE_FLAGS(*pte);
+    /*
     if((mem = kalloc()) == 0)
       goto bad;
     memmove(mem, (char*)P2V(pa), PGSIZE);
-    if(mappages(d, (void*)i, PGSIZE, V2P(mem), flags) < 0) {
-      kfree(mem);
+    */
+    if(mappages(d, (void*)i, PGSIZE, pa, flags) < 0) {   // reusing pa instead of a the copy mem
+      //kfree(mem);
       goto bad;
     }
   }
@@ -343,6 +378,8 @@ bad:
   freevm(d);
   return 0;
 }
+
+
 
 //PAGEBREAK!
 // Map user virtual address to kernel address.
@@ -433,31 +470,81 @@ sys_pgtPrint(void)
   return 0;
 }
 
+
+// toggle permissions for specified flags
+int
+set_page_perms(uint flags, uint values)
+{
+  pde_t *pgdir = myproc()->pgdir; //ptr to base of page directory
+  pde_t *pde;                     //ptr to entry in page directory
+  pte_t *pgtab;                   //ptr to base of page table
+  pte_t *pte;                     //ptr to entry in page table
+  
+  // loop over entries in page directory
+  for(uint outer = 0; outer < NPDENTRIES; outer++)
+  {
+    pde = &pgdir[outer]; // pointer to entry in directory (with flags)
+    if( !(*pde & PTE_P && *pde & PTE_U) ){ continue;}
+    pgtab = (pte_t*)P2V(PTE_ADDR(*pde)); // converts to virtual address accessible by OS
+
+    //loop over entries in page table
+    for(uint inner = 0; inner<NPTENTRIES; inner++)
+    {
+      pte = &pgtab[inner];  // pointer to entry in page table
+      if( !(*pte & PTE_P && *pte & PTE_U) ){ continue;} // not present or not userspace
+      *pte = (values & flags) | (*pte & ~flags);
+    }
+
+  }
+  return 0;
+}
+
+
 int
 pgflt_handler(void)
 {
-    struct proc* currproc = myproc();
-    pde_t *pgdir = currproc->pgdir; //ptr to base of page directory
+    struct proc* curproc = myproc();
+    pde_t *pgdir = curproc->pgdir; //ptr to base of page directory
     uint access_addr = rcr2();
 
     if(access_addr >= KERNBASE){   //address restricted to userspace
       cprintf("invalid virtual address\n"); 
       return -1; 
-    } 
+    }
+    pte_t *pte = walkpgdir(pgdir, (void*)access_addr, 0);
+    uint refaddr = PTE_ADDR(*pte); //temp
+    // copy on write
+    if(!(*pte & PTE_W) && *pte & PTE_P && *pte & PTE_U )  // non writable, but valid page
+    {
+      // copy frames to get writable pages
+      if(copy_frame(curproc->pgdir, access_addr) == -1){  //makes writable copy
+        kfree(curproc->kstack);
+        return -1;
+      }
 
-    char *mem = kalloc();   // allocate physical memory to kernel
-    if(mem == 0){
+
+      cprintf("(Copied on write, %x to %x, by pid %d)\n", refaddr, PTE_ADDR(*pte), curproc->pid); //temp
+      return 0;
+    }
+
+    // demand page
+    else if( (*pte & PTE_P) == 0) {   // when no entry or invalid entry
+
+      char *mem = kalloc();   // allocate physical memory to kernel
+      if(mem == 0){
         cprintf("out of memory\n");
         return -1;
-    }
-    memset(mem, 0, PGSIZE); //zero out page
+      }
 
-    if(mappages(pgdir, (void*)access_addr, PGSIZE, V2P(mem), PTE_W|PTE_U) < 0){
+      memset(mem, 0, PGSIZE); // zero out page and map to page table
+      if(mappages(pgdir, (void*)access_addr, PGSIZE, V2P(mem), PTE_W|PTE_U) < 0){
         cprintf("out of memory (2)\n");
         kfree(mem);
         return -1;
+      }
+      cprintf("(Page demanded and allocated, pid %d)\n", curproc->pid); //temp
+      return 0;
     }
 
-    cprintf("(Page demanded and satisfied)\n");
-    return 0;
+    return -1;
 }
