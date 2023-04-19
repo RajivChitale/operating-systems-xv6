@@ -182,9 +182,9 @@ UPROGS=\
 	_wc\
 	_zombie\
 	_mydate\
-	_trail\
 	_mypgtPrint\
 	_mydemandPage\
+	_set\
 
 fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)

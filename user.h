@@ -24,8 +24,8 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 int date(struct rtcdate*);
-int trail(int);
 int pgtPrint(void);
+int settings(int, int);
 
 // ulib.c
 int stat(const char*, struct stat*);

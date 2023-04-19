@@ -7,6 +7,7 @@
 #include "x86.h"
 #include "elf.h"
 
+
 int
 exec(char *path, char **argv)
 {
@@ -41,7 +42,6 @@ exec(char *path, char **argv)
 // read only code has: (ph.flags & ELF_PROG_FLAG_READ) && (ph.flags & ELF_PROG_FLAG_EXEC) && !(ph.flags & ELF_PROG_FLAG_WRITE)
   
   // Load program into memory.
-  int demand_paging = 1;  // toggle: 1 with, 0 without demand paging
   sz = 0;
   for(i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){
 
@@ -61,7 +61,7 @@ exec(char *path, char **argv)
     if(loaduvm(pgdir, (char*)ph.vaddr, ip, ph.off, ph.filesz) < 0)  
       goto bad;
 
-    if(!demand_paging && (sz = allocuvm(pgdir, sz, ph.vaddr + ph.memsz)) == 0) // creates pages for data when not demand paging
+    if(!configuration[DEMAND_PAGING] && (sz = allocuvm(pgdir, sz, ph.vaddr + ph.memsz)) == 0) // creates pages for data when not demand paging
       goto bad;               
     sz = ph.vaddr + ph.memsz; // skips pages for uninitialized segment in demand paging
   }

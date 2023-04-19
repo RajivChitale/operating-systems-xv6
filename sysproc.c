@@ -6,6 +6,8 @@
 #include "memlayout.h"
 #include "mmu.h"
 #include "proc.h"
+
+
 //#include "lapic.c"
 
 int
@@ -101,15 +103,54 @@ sys_date(void)
   return 0;
 }
 
-int
-sys_trail(void)
-{
-  int mode;
-  if(argint(0, &mode) < 0)
-    return -1;
-  if(mode == 0) cprintf("No system calls logged\n");
-  else if(mode== 1) cprintf("System calls logged, ignoring write\n");
-  else if(mode== 2) cprintf("All system calls logged\n");
-  return mode;
-}
+// int
+// sys_trail(void)
+// {
+//   int mode;
+//   if(argint(0, &mode) < 0)
+//     return -1;
+//   if(mode == 0) cprintf("No system calls logged\n");
+//   else if(mode== 1) cprintf("System calls logged, ignoring write\n");
+//   else if(mode== 2) cprintf("All system calls logged\n");
+//   return mode;
+// }
 
+int
+sys_settings(void)
+{
+  int setting;
+  int value;
+  if(argint(0, &setting) < 0)
+    return -1;
+  if(argint(1, &value) < 0)
+    return -1;
+
+
+  if(setting == DEBUG_INFO){
+    if(value==0) cprintf("Debug information hidden\n");
+    else if(value==1)  cprintf("Debug information shown\n");
+    else cprintf("Value must be from 0, 1\n");
+  }
+
+  else if(setting == DEMAND_PAGING){
+    if(value==0) cprintf("Demand paging off\n");
+    else if(value==1)  cprintf("Demand paging on\n");
+    else cprintf("Value must be from 0, 1\n");
+  }
+
+  else if(setting == SYSCALL_TRAIL){
+    if(value==0) cprintf("No system calls logged\n");
+    else if(value==1) cprintf("System calls logged, ignoring write\n");
+    else if(value==2) cprintf("All system calls logged\n");
+    else cprintf("Value must be from 0, 1, 2\n");
+  }
+
+  else{ 
+    cprintf("Invalid setting. Choose from d (demand paging), i (info), s (syscall trail)\n");
+    return -1; 
+  }
+
+  configuration[setting] = value;
+
+  return value;
+}

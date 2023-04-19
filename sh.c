@@ -66,7 +66,6 @@ runcmd(struct cmd *cmd)
 
   if(cmd == 0)
     exit();
-
   switch(cmd->type){
   default:
     panic("runcmd");
@@ -75,8 +74,8 @@ runcmd(struct cmd *cmd)
     ecmd = (struct execcmd*)cmd;
     if(ecmd->argv[0] == 0)
       exit();
-    exec(ecmd->argv[0], ecmd->argv);
-    printf(2, "exec %s failed\n", ecmd->argv[0]);
+    exec(ecmd->argv[0], ecmd->argv); 
+    printf(2, "exec %s failed\n", ecmd->argv[0]); 
     break;
 
   case REDIR:
@@ -127,6 +126,7 @@ runcmd(struct cmd *cmd)
       runcmd(bcmd->cmd);
     break;
   }
+
   exit();
 }
 
@@ -165,10 +165,14 @@ main(void)
         printf(2, "cannot cd %s\n", buf+3);
       continue;
     }
-    if(fork1() == 0){
+
+    if(fork1() == 0){           //child process runs and exits
       runcmd(parsecmd(buf));
     }
-    printf(1, ""); //fixes bug for some reason?
+
+    //printf(1, ""); // fixes buggy lack out output
+    // for(uint i=0; i<20000; i++) // tried a junk loop, this also fixes the bug. 
+    //   {if(i<200)i++;}  // maybe wait() occurs before output is printed to console
     wait();
 
   }

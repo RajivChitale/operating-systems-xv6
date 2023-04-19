@@ -189,7 +189,7 @@ fork(void)
     return -1;
   }
 
-  cprintf("(fork, new pid %d)\n", np->pid); //temp
+  if(configuration[DEBUG_INFO]) cprintf("(%s forked, pid %d and %d)\n", curproc->name, curproc->pid, np->pid); //debug
 
   // Copy process state from proc. Reuse pages
   if((np->pgdir = copy_pages(curproc->pgdir, curproc->sz)) == 0){
@@ -202,6 +202,8 @@ fork(void)
   np->sz = curproc->sz;
   np->parent = curproc;
   *np->tf = *curproc->tf;
+
+  lcr3(V2P(curproc->pgdir)); // refresh TLB
 
   // Clear %eax so that fork returns 0 in the child.
   np->tf->eax = 0;
@@ -280,6 +282,7 @@ wait(void)
   struct proc *curproc = myproc();
   
   acquire(&ptable.lock);
+
   for(;;){
     // Scan through table looking for exited children.
     havekids = 0;
@@ -311,6 +314,7 @@ wait(void)
 
     // Wait for children to exit.  (See wakeup1 call in proc_exit.)
     sleep(curproc, &ptable.lock);  //DOC: wait-sleep
+
   }
 }
 
@@ -441,7 +445,6 @@ sleep(void *chan, struct spinlock *lk)
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
-
   sched();
 
   // Tidy up.

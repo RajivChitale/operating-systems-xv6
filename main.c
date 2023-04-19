@@ -6,6 +6,14 @@
 #include "proc.h"
 #include "x86.h"
 
+int configuration[] = {
+[DEBUG_INFO]      0,        // 1 for debug info, 0 without
+[DEMAND_PAGING]   1,        // 1 for demand paging, 0 for without
+[SYSCALL_TRAIL]   0,        // 2 for printing all syscalls, 1 to ignore write, 0 for not printing.
+};
+
+
+
 static void startothers(void);
 static void mpmain(void)  __attribute__((noreturn));
 extern pde_t *kpgdir;

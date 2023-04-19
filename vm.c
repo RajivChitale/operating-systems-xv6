@@ -7,6 +7,7 @@
 #include "proc.h"
 #include "elf.h"
 
+
 extern char data[];  // defined by kernel.ld
 pde_t *kpgdir;  // for use in scheduler()
 
@@ -321,9 +322,9 @@ copy_frame(pde_t *pgdir, uint addr)
   addr = PGROUNDDOWN(addr); 
 
   if((pte = walkpgdir(pgdir, (void *) addr, 0)) == 0)
-    panic("copyuvm: pte should exist");
+    panic("copy_frame: pte should exist");
   if(!(*pte & PTE_P))
-    panic("copyuvm: page not present");
+    panic("copy_frame: page not present");
   pa = PTE_ADDR(*pte);
   flags = PTE_FLAGS(*pte) | PTE_W; // copy made writable here
 
@@ -337,7 +338,6 @@ copy_frame(pde_t *pgdir, uint addr)
     return -1;
   }
 
-  lcr3(V2P(pgdir)); // refresh TLB
   return 1;
 }
 
@@ -355,9 +355,9 @@ copy_pages(pde_t *pgdir, uint sz)
     return 0;
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
-      panic("copyuvm: pte should exist");
+      continue; //panic("copy_pages: pte should exist");
     if(!(*pte & PTE_P))
-      panic("copyuvm: page not present");
+      continue; //panic("copy_pages: page not present");
 
     *pte = *pte & ~PTE_W; // make page read only
     pa = PTE_ADDR(*pte);
@@ -503,27 +503,28 @@ set_page_perms(uint flags, uint values)
 int
 pgflt_handler(void)
 {
+
     struct proc* curproc = myproc();
     pde_t *pgdir = curproc->pgdir; //ptr to base of page directory
     uint access_addr = rcr2();
 
     if(access_addr >= KERNBASE){   //address restricted to userspace
       cprintf("invalid virtual address\n"); 
-      return -1; 
+      return 1; 
     }
     pte_t *pte = walkpgdir(pgdir, (void*)access_addr, 0);
-    uint refaddr = PTE_ADDR(*pte); //temp
+    uint refaddr = PTE_ADDR(*pte); //debug
     // copy on write
-    if(!(*pte & PTE_W) && *pte & PTE_P && *pte & PTE_U )  // non writable, but valid page
+    if(!(*pte & PTE_W) && (*pte & PTE_P) && (*pte & PTE_U) )  // non writable, but valid page
     {
       // copy frames to get writable pages
       if(copy_frame(curproc->pgdir, access_addr) == -1){  //makes writable copy
         kfree(curproc->kstack);
-        return -1;
+        cprintf("unable to create page table\n");
+        return 2;
       }
 
-
-      cprintf("(Copied on write, %x to %x, by pid %d)\n", refaddr, PTE_ADDR(*pte), curproc->pid); //temp
+      if(configuration[DEBUG_INFO]) cprintf("(Copied on write, %x to %x, by %s:%d)\n", refaddr, PTE_ADDR(*pte), curproc->name, curproc->pid); //debug
       return 0;
     }
 
@@ -533,18 +534,18 @@ pgflt_handler(void)
       char *mem = kalloc();   // allocate physical memory to kernel
       if(mem == 0){
         cprintf("out of memory\n");
-        return -1;
+        return 3;
       }
 
       memset(mem, 0, PGSIZE); // zero out page and map to page table
       if(mappages(pgdir, (void*)access_addr, PGSIZE, V2P(mem), PTE_W|PTE_U) < 0){
         cprintf("out of memory (2)\n");
         kfree(mem);
-        return -1;
+        return 4;
       }
-      cprintf("(Page demanded and allocated, pid %d)\n", curproc->pid); //temp
+      if(configuration[DEBUG_INFO]) cprintf("(Page demanded and allocated, by %s:%d)\n", curproc->name, curproc->pid); //debug
       return 0;
     }
 
-    return -1;
+    return 5;
 }

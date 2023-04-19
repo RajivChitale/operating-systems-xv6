@@ -104,8 +104,8 @@ extern int sys_wait(void);
 extern int sys_write(void);
 extern int sys_uptime(void);
 extern int sys_date(void);    // to return date in GMT
-extern int sys_trail(void);   // to adjust printing of syscalls
 extern int sys_pgtPrint(void); // to print page table
+extern int sys_settings(void); // to configure settings
 
 static int (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -130,8 +130,8 @@ static int (*syscalls[])(void) = {
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
 [SYS_date]    sys_date,
-[SYS_trail]   sys_trail,
 [SYS_pgtPrint] sys_pgtPrint,
+[SYS_settings] sys_settings,
 };
 
 
@@ -158,8 +158,8 @@ const char syscallnames[][10] = {
 [SYS_mkdir]   "mkdir",
 [SYS_close]   "close",
 [SYS_date]    "date",
-[SYS_trail] "trail",
 [SYS_pgtPrint] "pgtPrint",
+[SYS_settings] "settings",
 };
 
 
@@ -168,14 +168,12 @@ syscall(void)
 {
   int num;
   struct proc *curproc = myproc();
-  static int trail_mode = 0;   // 2 for printing all syscalls, 1 to ignore write, 0 for not printing.
   num = curproc->tf->eax;      // syscall number
 
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
     curproc->tf->eax = syscalls[num]();   // run and store return value
 
-    if(num==SYS_trail){trail_mode = curproc->tf->eax;} // adjust printing of syscalls
-    if(trail_mode == 2 || (trail_mode == 1 && num!= SYS_write) )
+    if(configuration[SYSCALL_TRAIL] == 2 || (configuration[SYSCALL_TRAIL] == 1 && num!= SYS_write) )
       {cprintf("%s: %s->%d->%d\n", curproc->name, syscallnames[num], num, curproc->tf->eax);} 
   } else {
     cprintf("%d %s: unknown sys call %d\n",

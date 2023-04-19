@@ -10,6 +10,16 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
+
+#define DEBUG_INFO 1
+#define DEMAND_PAGING 2
+#define SYSCALL_TRAIL 3
+
+extern int configuration[4]; 
+
+
+
+
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
