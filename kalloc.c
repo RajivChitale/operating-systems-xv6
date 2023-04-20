@@ -9,6 +9,10 @@
 #include "mmu.h"
 #include "spinlock.h"
 
+extern int readers[];
+
+int readers[PHYSTOP/PGSIZE];
+
 void freerange(void *vstart, void *vend);
 extern char end[]; // first address after kernel loaded from ELF file
                    // defined by the kernel linker script in kernel.ld
@@ -49,7 +53,10 @@ freerange(void *vstart, void *vend)
   char *p;
   p = (char*)PGROUNDUP((uint)vstart);
   for(; p + PGSIZE <= (char*)vend; p += PGSIZE)
+  {
+    readers[V2P(p)/PGSIZE]=1; //first free should set readers to 0
     kfree(p);
+  }
 }
 //PAGEBREAK: 21
 // Free the page of physical memory pointed at by v,
@@ -68,9 +75,11 @@ kfree(char *v)
 
   if(kmem.use_lock)
     acquire(&kmem.lock);
-  r = (struct run*)v;
-  r->next = kmem.freelist;
-  kmem.freelist = r;
+  if(--readers[V2P(v)/PGSIZE] == 0){
+    r = (struct run*)v;
+    r->next = kmem.freelist;
+    kmem.freelist = r;
+  }
   if(kmem.use_lock)
     release(&kmem.lock);
 }
@@ -86,6 +95,7 @@ kalloc(void)
   if(kmem.use_lock)
     acquire(&kmem.lock);
   r = kmem.freelist;
+  readers[V2P(r)/PGSIZE]++;
   if(r)
     kmem.freelist = r->next;
   if(kmem.use_lock)

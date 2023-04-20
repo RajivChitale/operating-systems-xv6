@@ -166,7 +166,7 @@ main(void)
       continue;
     }
 
-    if(fork1() == 0){           //child process runs and exits
+    if(fork1() == 0){           //child process runs and 
       runcmd(parsecmd(buf));
     }
 

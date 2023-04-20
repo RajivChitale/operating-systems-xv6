@@ -7,7 +7,7 @@
 #include "proc.h"
 #include "elf.h"
 
-
+extern int readers[];
 extern char data[];  // defined by kernel.ld
 pde_t *kpgdir;  // for use in scheduler()
 
@@ -268,7 +268,7 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
     pte = walkpgdir(pgdir, (char*)a, 0);
     if(!pte)
       a = PGADDR(PDX(a) + 1, 0, 0) - PGSIZE;
-    else if((*pte & PTE_P) != 0 && (*pte & PTE_W) ){    //not allowing clearing of read only frames
+    else if((*pte & PTE_P) != 0 && (*pte & PTE_W) ){    //not allowing clearing of read only frames. check
       pa = PTE_ADDR(*pte);
       if(pa == 0)
         panic("kfree");
@@ -291,7 +291,7 @@ freevm(pde_t *pgdir)
     panic("freevm: no pgdir");
   deallocuvm(pgdir, KERNBASE, 0);
   for(i = 0; i < NPDENTRIES; i++){
-    if(pgdir[i] & PTE_P && pgdir[i] & PTE_W){   //not allowing clearing of read only frames
+    if(pgdir[i] & PTE_P && pgdir[i] & PTE_W){   //not allowing clearing of read only frames. check 
       char * v = P2V(PTE_ADDR(pgdir[i]));
       kfree(v);
     }
@@ -326,17 +326,23 @@ copy_frame(pde_t *pgdir, uint addr)
   if(!(*pte & PTE_P))
     panic("copy_frame: page not present");
   pa = PTE_ADDR(*pte);
-  flags = PTE_FLAGS(*pte) | PTE_W; // copy made writable here
+  flags = PTE_FLAGS(*pte) | PTE_W; // copy made writable here  
+
+  if(readers[pa/PGSIZE] == 1){
+    *pte = *pte | flags;  //check if no other processes is referring same frame
+    return 2;
+  }
 
   if((mem = kalloc()) == 0)
     return -1;
 
   memmove(mem, (char*)P2V(pa), PGSIZE);
-
   if(mappages(pgdir, (void*)addr, PGSIZE, V2P(mem), flags) < 0) {
     kfree(mem);
     return -1;
   }
+  readers[pa/PGSIZE]--; 
+  //kfree(P2V(pa)); // check
 
   return 1;
 }
@@ -367,6 +373,7 @@ copy_pages(pde_t *pgdir, uint sz)
       goto bad;
     memmove(mem, (char*)P2V(pa), PGSIZE);
     */
+    readers[pa/PGSIZE]++; //check
     if(mappages(d, (void*)i, PGSIZE, pa, flags) < 0) {   // reusing pa instead of a the copy mem
       //kfree(mem);
       goto bad;
