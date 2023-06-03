@@ -185,6 +185,7 @@ UPROGS=\
 	_mypgtPrint\
 	_mydemandPage\
 	_set\
+	_myCOW\
 
 fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)

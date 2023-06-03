@@ -9,8 +9,6 @@
 #include "mmu.h"
 #include "spinlock.h"
 
-extern int readers[];
-
 int readers[PHYSTOP/PGSIZE];
 
 void freerange(void *vstart, void *vend);
@@ -26,6 +24,18 @@ struct {
   int use_lock;
   struct run *freelist;
 } kmem;
+
+
+int add_readers(uint pa, int delta){
+  if(kmem.use_lock)
+    acquire(&kmem.lock);
+  readers[pa/PGSIZE] += delta;
+  int new_val = readers[pa/PGSIZE];
+  if(kmem.use_lock)
+    release(&kmem.lock);
+  return new_val;
+}
+
 
 // Initialization happens in two phases.
 // 1. main() calls kinit1() while still using entrypgdir to place just
@@ -69,6 +79,7 @@ kfree(char *v)
   struct run *r;
   if((uint)v % PGSIZE || v < end || V2P(v) >= PHYSTOP)
     panic("kfree");
+    
 
   // Fill with junk to catch dangling refs.
   memset(v, 1, PGSIZE);

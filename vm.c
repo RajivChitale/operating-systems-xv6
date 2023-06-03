@@ -7,7 +7,6 @@
 #include "proc.h"
 #include "elf.h"
 
-extern int readers[];
 extern char data[];  // defined by kernel.ld
 pde_t *kpgdir;  // for use in scheduler()
 
@@ -269,9 +268,10 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
     if(!pte)
       a = PGADDR(PDX(a) + 1, 0, 0) - PGSIZE;
     else if((*pte & PTE_P) != 0 && (*pte & PTE_W) ){    //not allowing clearing of read only frames. check
+    //else if(*pte & PTE_P){      //if valid
       pa = PTE_ADDR(*pte);
       if(pa == 0)
-        panic("kfree");
+        panic("kfree(2)");
       char *v = P2V(pa);
       kfree(v);
       *pte = 0;
@@ -291,7 +291,8 @@ freevm(pde_t *pgdir)
     panic("freevm: no pgdir");
   deallocuvm(pgdir, KERNBASE, 0);
   for(i = 0; i < NPDENTRIES; i++){
-    if(pgdir[i] & PTE_P && pgdir[i] & PTE_W){   //not allowing clearing of read only frames. check 
+    //if(pgdir[i] & PTE_P && pgdir[i] & PTE_W){   //not allowing clearing of read only frames. check 
+    if(pgdir[i] & PTE_P ){  
       char * v = P2V(PTE_ADDR(pgdir[i]));
       kfree(v);
     }
@@ -319,19 +320,23 @@ copy_frame(pde_t *pgdir, uint addr)
   pte_t *pte;
   uint pa, flags;
   char *mem;
-  addr = PGROUNDDOWN(addr); 
+  addr = PGROUNDDOWN(addr); // mapping will be done from whole page to whole frame. 
+  struct proc* curproc = myproc(); //for debugging info
 
   if((pte = walkpgdir(pgdir, (void *) addr, 0)) == 0)
     panic("copy_frame: pte should exist");
   if(!(*pte & PTE_P))
     panic("copy_frame: page not present");
+   
   pa = PTE_ADDR(*pte);
   flags = PTE_FLAGS(*pte) | PTE_W; // copy made writable here  
 
-  if(readers[pa/PGSIZE] == 1){
-    *pte = *pte | flags;  //check if no other processes is referring same frame
+  if( add_readers(pa, 0) == 1 ){ // last reader does not copy, only converts to writable
+    *pte = *pte | PTE_W;  
+    if(configuration[DEBUG_INFO]) cprintf("(Converted to write, %x, by %s:%d)\n", PTE_ADDR(*pte), curproc->name, curproc->pid); //debug
     return 2;
   }
+  add_readers(pa, -1); // this reader left to use another page
 
   if((mem = kalloc()) == 0)
     return -1;
@@ -341,9 +346,8 @@ copy_frame(pde_t *pgdir, uint addr)
     kfree(mem);
     return -1;
   }
-  readers[pa/PGSIZE]--; 
-  //kfree(P2V(pa)); // check
 
+  if(configuration[DEBUG_INFO]) cprintf("(Copied on write, %x to %x, by %s:%d)\n", pa, PTE_ADDR(*pte), curproc->name, curproc->pid); //debug
   return 1;
 }
 
@@ -373,7 +377,9 @@ copy_pages(pde_t *pgdir, uint sz)
       goto bad;
     memmove(mem, (char*)P2V(pa), PGSIZE);
     */
-    readers[pa/PGSIZE]++; //check
+
+    add_readers(pa, 1); //new reader for same frame
+
     if(mappages(d, (void*)i, PGSIZE, pa, flags) < 0) {   // reusing pa instead of a the copy mem
       //kfree(mem);
       goto bad;
@@ -441,12 +447,10 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
 int
 sys_pgtPrint(void)
 {
-  int tablewise = 0;   //set to 1 to group entries by their table
   pde_t *pgdir = myproc()->pgdir; //ptr to base of page directory
   pde_t *pde;                     //ptr to entry in page directory
   pte_t *pgtab;                   //ptr to base of page table
   pte_t *pte;                     //ptr to entry in page table
-  uint pagecount = 0;
   
   // loop over entries in page directory
   for(uint outer = 0; outer < NPDENTRIES; outer++)
@@ -454,7 +458,6 @@ sys_pgtPrint(void)
     pde = &pgdir[outer]; // pointer to entry in directory (with flags)
     if( !(*pde & PTE_P && *pde & PTE_U) ){ continue;}
     pgtab = (pte_t*)P2V(PTE_ADDR(*pde)); // converts to virtual address accessible by OS
-    int entry_exists = 0;  // bool to denote if table is empty or not
 
     //loop over entries in page table
     for(uint inner = 0; inner<NPTENTRIES; inner++)
@@ -462,15 +465,12 @@ sys_pgtPrint(void)
       pte = &pgtab[inner];  // pointer to entry in page table
       if( !(*pte & PTE_P && *pte & PTE_U) ){ continue;} // not present or not userspace
 
-      if(tablewise==1 && entry_exists==0) // found first entry. Print table name if printing tablewise
-      {
-        entry_exists=1;
-        cprintf("\nReading Table %d at Virtual address: 0x%x, Physical address: 0x%x\n\n", outer, pgtab, PTE_ADDR(*pde));
-      }
-      
+      uint pa = PTE_ADDR(*pte);
+      uint flags = PTE_FLAGS(*pte);
+      int wbit = (flags & PTE_W) ? 1 : 0;
+
       int virtual = (outer << PDXSHIFT) + (inner << PTXSHIFT); //convert physical to virtual address for process
-      cprintf("Entry number: %d, Virtual address: 0x%x, Physical address: 0x%x\n", pagecount, virtual, PTE_ADDR(*pte));
-      pagecount++;
+      cprintf("pgdir entry num:%d, Pgt entry num: %d, Virtual address: 0x%x, Physical address: 0x%x, W-bit: %d\n", outer, inner, virtual, pa, wbit );
     }
 
   }
@@ -519,9 +519,8 @@ pgflt_handler(void)
       cprintf("invalid virtual address\n"); 
       return 1; 
     }
-    pte_t *pte = walkpgdir(pgdir, (void*)access_addr, 0);
-    uint refaddr = PTE_ADDR(*pte); //debug
-    // copy on write
+    pte_t *pte = walkpgdir(pgdir, (void*)access_addr, 1); // find page table entry, or allocate table if non existent
+    // 2. copy on write
     if(!(*pte & PTE_W) && (*pte & PTE_P) && (*pte & PTE_U) )  // non writable, but valid page
     {
       // copy frames to get writable pages
@@ -530,17 +529,17 @@ pgflt_handler(void)
         cprintf("unable to create page table\n");
         return 2;
       }
-
-      if(configuration[DEBUG_INFO]) cprintf("(Copied on write, %x to %x, by %s:%d)\n", refaddr, PTE_ADDR(*pte), curproc->name, curproc->pid); //debug
+      lcr3(V2P(pgdir));
       return 0;
     }
 
-    // demand page
-    else if( (*pte & PTE_P) == 0) {   // when no entry or invalid entry
+    // 1. demand page
+    if( (*pte & PTE_P) == 0) {   // when no entry or invalid entry
 
       char *mem = kalloc();   // allocate physical memory to kernel
       if(mem == 0){
         cprintf("out of memory\n");
+        kfree(mem);
         return 3;
       }
 
@@ -553,6 +552,5 @@ pgflt_handler(void)
       if(configuration[DEBUG_INFO]) cprintf("(Page demanded and allocated, by %s:%d)\n", curproc->name, curproc->pid); //debug
       return 0;
     }
-
     return 5;
 }
